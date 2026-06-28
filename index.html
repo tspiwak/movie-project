@@ -347,7 +347,12 @@ footer {
     <button class="sort-btn active" data-sort="rating">Rating</button>
     <button class="sort-btn" data-sort="seen">Date Seen</button>
     <button class="sort-btn" data-sort="release">Release Year</button>
-
+    <div id="poster-progress" style="display:none; margin-left:auto; align-items:center; gap:10px;">
+      <div style="width:160px; height:4px; background:var(--border); border-radius:2px; overflow:hidden;">
+        <div id="poster-bar" style="height:100%; width:0%; background:var(--gold); border-radius:2px; transition:width 0.3s ease;"></div>
+      </div>
+      <span id="poster-count" style="font-size:12px; color:var(--muted); white-space:nowrap;">Loading posters…</span>
+    </div>
   </div>
 </div>
 
@@ -360,7 +365,7 @@ footer {
   <div id="grid" style="display:none;"></div>
 </div>
 
-<footer>Built with Google Sheets + Apps Script &nbsp;·&nbsp; Posters via OMDB</footer>
+<footer>Built with Google Sheets + Apps Script &nbsp;·&nbsp; Posters via TMDB</footer>
 
 <script>
 // ============================================================
@@ -368,10 +373,10 @@ footer {
 // ============================================================
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrNtgSTNb-KtrCkHcNaNt_GRqKFiAxEyxIdZliyydlOQ5Aw7JfoqV8XpOqlI6xLzKhxw/exec";
 
-// ▶ Get a free key at https://www.omdbapi.com/apikey.aspx
+// ▶ Get a free Read Access Token at https://www.themoviedb.org → Settings → API
 const TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4OTJhY2RlY2JhYzg3NDRlODcxZjZkZjc3OGVhZTYyNCIsIm5iZiI6MTc4MjY3NzAzMS4wMjMsInN1YiI6IjZhNDE3ZTI3OGNiODk5YTEwNmY2N2ZkOCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.89wf_M2_4FziBp1-mc4oOcwdM9Un22X74AjbAPHZoNU";
 // ============================================================
-  
+
 let allMovies = [];
 let currentSort = "rating";
 
@@ -500,7 +505,7 @@ function renderGrid(movies, sort) {
     card.appendChild(body);
     grid.appendChild(card);
 
-    if (OMDB_API_KEY && OMDB_API_KEY !== "YOUR_OMDB_API_KEY_HERE") {
+    if (TMDB_TOKEN && TMDB_TOKEN !== "YOUR_TMDB_READ_ACCESS_TOKEN_HERE") {
       const cacheKey = `${title}_${release}`;
       const cached   = cacheGet(cacheKey);
       if (cached && cached !== CACHE_NULL) {
@@ -523,22 +528,55 @@ function applyPoster(url, title, posterWrap) {
   if (placeholder) posterWrap.replaceChild(img, placeholder);
 }
 
-// ── Parallel OMDB fetch ────────────────────────────────────
+// ── Parallel TMDB fetch ────────────────────────────────────
 async function fetchPostersParallel(items) {
-  await Promise.all(items.map(async ({ title, release, posterWrap, cacheKey }) => {
-    try {
-      const params = new URLSearchParams({ apikey: OMDB_API_KEY, t: title, type: "movie" });
-      if (release) params.set("y", release);
-      const res  = await fetch(`https://www.omdbapi.com/?${params}`);
-      const data = await res.json();
-      if (data.Poster && data.Poster !== "N/A") {
-        cacheSet(cacheKey, data.Poster);
-        applyPoster(data.Poster, title, posterWrap);
-      } else {
-        cacheSet(cacheKey, CACHE_NULL);
-      }
-    } catch (_) {}
-  }));
+  const total      = items.length;
+  let   completed  = 0;
+  const BATCH_SIZE = 50;
+
+  const progress = document.getElementById("poster-progress");
+  const bar      = document.getElementById("poster-bar");
+  const count    = document.getElementById("poster-count");
+
+  if (total > 0) {
+    progress.style.display = "flex";
+    count.textContent = `0 / ${total} posters`;
+  }
+
+  function tick() {
+    completed++;
+    const pct = Math.round((completed / total) * 100);
+    bar.style.width = pct + "%";
+    count.textContent = `${completed} / ${total} posters`;
+    if (completed >= total) {
+      setTimeout(() => { progress.style.display = "none"; }, 2000);
+    }
+  }
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    const batch = items.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async ({ title, release, posterWrap, cacheKey }) => {
+      try {
+        // Step 1: search for the movie by title + year
+        const searchParams = new URLSearchParams({ query: title, language: "en-US", page: 1 });
+        if (release) searchParams.set("year", release);
+        const searchRes  = await fetch(`https://api.themoviedb.org/3/search/movie?${searchParams}`, {
+          headers: { Authorization: `Bearer ${TMDB_TOKEN}`, "Content-Type": "application/json" }
+        });
+        const searchData = await searchRes.json();
+        const movie      = searchData.results && searchData.results[0];
+
+        if (movie && movie.poster_path) {
+          const url = `https://image.tmdb.org/t/p/w342${movie.poster_path}`;
+          cacheSet(cacheKey, url);
+          applyPoster(url, title, posterWrap);
+        } else {
+          cacheSet(cacheKey, CACHE_NULL);
+        }
+      } catch (_) {}
+      tick();
+    }));
+  }
 }
 
 // ── Sort button wiring ─────────────────────────────────────
