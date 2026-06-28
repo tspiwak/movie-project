@@ -371,7 +371,7 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrNtgSTNb-KtrC
 // ▶ Get a free key at https://www.omdbapi.com/apikey.aspx
 const OMDB_API_KEY = "136bf5e7";
 // ============================================================
-
+  
 let allMovies = [];
 let currentSort = "rating";
 
@@ -465,7 +465,7 @@ function renderGrid(movies, sort) {
   const needsFetch = [];
 
   for (const m of sorted) {
-    const title   = m[COL.title]   || "Unknown";
+    const title   = String(m[COL.title] ?? "Unknown").trim() || "Unknown";
     const rating  = Number(m[COL.rating]) || 0;
     const release = m[COL.release] || "";
     const when    = m[COL.when]    || "";
