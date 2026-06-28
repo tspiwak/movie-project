@@ -347,7 +347,7 @@ footer {
     <button class="sort-btn active" data-sort="rating">Rating</button>
     <button class="sort-btn" data-sort="seen">Date Seen</button>
     <button class="sort-btn" data-sort="release">Release Year</button>
-    <button class="sort-btn" data-sort="title">Title A–Z</button>
+
   </div>
 </div>
 
@@ -435,7 +435,6 @@ function sortMovies(movies, sort) {
   if (sort === "rating")  return copy.sort((a,b) => Number(b[COL.rating])  - Number(a[COL.rating]));
   if (sort === "seen")    return copy.sort((a,b) => Number(b[COL.listnum]) - Number(a[COL.listnum]));
   if (sort === "release") return copy.sort((a,b) => Number(b[COL.release]) - Number(a[COL.release]));
-  if (sort === "title")   return copy.sort((a,b) => String(a[COL.title]).localeCompare(String(b[COL.title])));
   return copy;
 }
 
@@ -446,11 +445,24 @@ function scoreClass(r) {
   return "score-low";
 }
 
+// ── Poster cache (localStorage) ────────────────────────────
+const CACHE_PREFIX = "movielog_poster_";
+const CACHE_NULL   = "NONE";
+
+function cacheGet(key) {
+  try { return localStorage.getItem(CACHE_PREFIX + key); } catch(_) { return null; }
+}
+function cacheSet(key, val) {
+  try { localStorage.setItem(CACHE_PREFIX + key, val); } catch(_) {}
+}
+
 // ── Render grid ────────────────────────────────────────────
-async function renderGrid(movies, sort) {
+function renderGrid(movies, sort) {
   const sorted = sortMovies(movies, sort);
   const grid   = document.getElementById("grid");
   grid.innerHTML = "";
+
+  const needsFetch = [];
 
   for (const m of sorted) {
     const title   = m[COL.title]   || "Unknown";
@@ -463,18 +475,15 @@ async function renderGrid(movies, sort) {
     const card = document.createElement("div");
     card.className = "card";
 
-    // Poster (lazy: set placeholder first, then fetch)
     const posterWrap = document.createElement("div");
     posterWrap.className = "poster-wrap";
     posterWrap.innerHTML = `<div class="poster-placeholder">${title.toUpperCase()}</div>`;
 
-    // Score badge
     const badge = document.createElement("div");
     badge.className = `score-badge ${scoreClass(rating)}`;
     badge.textContent = rating;
     posterWrap.appendChild(badge);
 
-    // Card body
     const body = document.createElement("div");
     body.className = "card-body";
     body.innerHTML = `
@@ -491,29 +500,45 @@ async function renderGrid(movies, sort) {
     card.appendChild(body);
     grid.appendChild(card);
 
-    // Fetch poster async
     if (OMDB_API_KEY && OMDB_API_KEY !== "YOUR_OMDB_API_KEY_HERE") {
-      fetchPoster(title, release, posterWrap);
+      const cacheKey = `${title}_${release}`;
+      const cached   = cacheGet(cacheKey);
+      if (cached && cached !== CACHE_NULL) {
+        applyPoster(cached, title, posterWrap);
+      } else if (!cached) {
+        needsFetch.push({ title, release, posterWrap, cacheKey });
+      }
     }
   }
+
+  if (needsFetch.length) fetchPostersParallel(needsFetch);
 }
 
-// ── OMDB poster fetch ──────────────────────────────────────
-async function fetchPoster(title, year, posterWrap) {
-  try {
-    const params = new URLSearchParams({ apikey: OMDB_API_KEY, t: title, type: "movie" });
-    if (year) params.set("y", year);
-    const res  = await fetch(`https://www.omdbapi.com/?${params}`);
-    const data = await res.json();
-    if (data.Poster && data.Poster !== "N/A") {
-      const img = document.createElement("img");
-      img.src = data.Poster;
-      img.alt = title;
-      // Replace placeholder text but keep the badge
-      const placeholder = posterWrap.querySelector(".poster-placeholder");
-      if (placeholder) posterWrap.replaceChild(img, placeholder);
-    }
-  } catch (_) { /* silently keep placeholder */ }
+// ── Apply poster URL to a card ─────────────────────────────
+function applyPoster(url, title, posterWrap) {
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = title;
+  const placeholder = posterWrap.querySelector(".poster-placeholder");
+  if (placeholder) posterWrap.replaceChild(img, placeholder);
+}
+
+// ── Parallel OMDB fetch ────────────────────────────────────
+async function fetchPostersParallel(items) {
+  await Promise.all(items.map(async ({ title, release, posterWrap, cacheKey }) => {
+    try {
+      const params = new URLSearchParams({ apikey: OMDB_API_KEY, t: title, type: "movie" });
+      if (release) params.set("y", release);
+      const res  = await fetch(`https://www.omdbapi.com/?${params}`);
+      const data = await res.json();
+      if (data.Poster && data.Poster !== "N/A") {
+        cacheSet(cacheKey, data.Poster);
+        applyPoster(data.Poster, title, posterWrap);
+      } else {
+        cacheSet(cacheKey, CACHE_NULL);
+      }
+    } catch (_) {}
+  }));
 }
 
 // ── Sort button wiring ─────────────────────────────────────
