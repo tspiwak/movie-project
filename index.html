@@ -478,8 +478,6 @@ async function loadMovies() {
     allWatchNext = json.watchNext || [];
     renderStats(allMovies);
     renderGrid(allMovies, currentSort);
-    renderWatchNext(allWatchNext);
-
     document.getElementById("status").style.display = "none";
     document.getElementById("grid").style.display   = "grid";
 
@@ -658,6 +656,7 @@ async function fetchPostersParallel(items) {
 
 
 // ── Tab switching ──────────────────────────────────────────
+let watchNextRendered = false;
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -665,7 +664,11 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     const tab = btn.dataset.tab;
     document.getElementById("controls").style.display          = tab === "movies" ? "" : "none";
     document.getElementById("main").style.display              = tab === "movies" ? "" : "none";
-    document.getElementById("watchnext-section").style.display = tab === "watchnext" ? "" : "none";
+    document.getElementById("watchnext-section").style.display = tab === "watchnext" ? "block" : "none";
+    if (tab === "watchnext" && !watchNextRendered) {
+      watchNextRendered = true;
+      renderWatchNext(allWatchNext);
+    }
   });
 });
 
